@@ -1,0 +1,22 @@
+# 本地运行时配置（含个人路径，不要提交）
+config.json
+
+# 个人本地启动脚本（仓库统一用 start.bat）
+启动.bat
+
+# 依赖与日志
+node_modules/
+npm-debug.log*
+*.log
+
+# 系统垃圾
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
