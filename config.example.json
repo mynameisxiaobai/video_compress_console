@@ -4,8 +4,10 @@
   "port": 8787,
   "sourceDir": "D:\\Videos\\示例剧集",
   "outputRoot": "D:\\压缩完成",
+  "outDir": "",
+  "outManual": false,
   "encoder": "nvenc",
-  "maxShortSide": 1080,
+  "maxShortSide": 0,
   "targetH": 1080,
   "rateMode": "auto",
   "qualityTier": "balanced",
@@ -22,5 +24,8 @@
   "multipass": true,
   "concurrency": 2,
   "suffix": "",
+  "onConflict": "skip",
+  "notifyOnDone": true,
+  "soundOnDone": false,
   "besideSource": false
 }

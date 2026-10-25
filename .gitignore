@@ -9,6 +9,9 @@ node_modules/
 npm-debug.log*
 *.log
 
+# 运行时数据（任务历史 JSONL、运行日志），不要提交
+data/
+
 # 系统垃圾
 Thumbs.db
 ehthumbs.db

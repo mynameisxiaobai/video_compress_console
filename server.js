@@ -13,19 +13,28 @@ const Bitrate = require('./lib/bitrate');
 const TaskManager = require('./lib/tasks');
 const Pick = require('./lib/pick');
 const Locate = require('./lib/locate');
+const Store = require('./lib/store');
+const Log = require('./lib/log');
 
 const ROOT = __dirname;
 const CONFIG_FILE = path.join(ROOT, 'config.json');
-const DEFAULT_SRC = path.join(process.env.USERPROFILE || 'C:\\Users\\Administrator',
-  'Downloads', ' 潜伏 (2008) 4K修复版 全30集 国语中字 收藏版');
+// 默认值必须是中性的：这个项目要开源，别把本机的真实目录名写进来
+const HOME = process.env.USERPROFILE || 'C:\\Users\\Public';
+const DEFAULT_SRC = path.join(HOME, 'Videos');
+const DEFAULT_OUT = path.join(HOME, 'Videos', '压缩完成');
+const CONFLICT_MODES = ['skip', 'rename', 'overwrite'];
 
 // ---------- 配置 ----------
 const defaultConfig = () => ({
-  ffmpegPath: path.join(process.env.USERPROFILE || '', 'tools', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+  ffmpegPath: path.join(HOME, 'tools', 'ffmpeg', 'bin', 'ffmpeg.exe'),
   ffprobePath: null,
   port: 8787,
   sourceDir: DEFAULT_SRC,
-  outputRoot: 'E:\\压缩完成',
+  outputRoot: DEFAULT_OUT,
+  // 上次的输出目录。outManual 为 true 表示这是用户手选/手输的，刷新时优先用它，
+  // 不要被 deriveOut() 按源目录重新算出来的值冲掉。
+  outDir: '',
+  outManual: false,
   encoder: 'nvenc',
   // 分辨率「上限」：按短边判断，只降不升。0 = 不缩放。targetH 保留兼容旧配置。
   maxShortSide: 1080,
@@ -45,7 +54,13 @@ const defaultConfig = () => ({
   faststart: false,
   multipass: true,
   concurrency: 2,
-  suffix: ''
+  suffix: '',
+  // 输出已存在同名文件时怎么办：skip 跳过 / rename 自动加 (1) / overwrite 覆盖。
+  // 默认 skip：重跑同一批不会重复占空间，也不会把已有结果悄悄删掉。
+  onConflict: 'skip',
+  // 一批跑完发系统通知 / 响提示音
+  notifyOnDone: true,
+  soundOnDone: false
 });
 
 function loadConfig() {
@@ -76,9 +91,20 @@ function broadcast(event, data) {
 const TM = new TaskManager();
 const resolved = FFmpeg.resolve(CFG);
 TM.configure({ ffmpegExe: resolved.ffmpeg, emit: broadcast });
-TM.setDiskGuard(() => {
-  if (!CFG.outputRoot) return null;
-  const info = Disk.driveInfo(Paths.safePath(CFG.outputRoot));
+// 任务落终态就落盘；启动时把历史读回来，服务重启也不会丢上次压了什么
+TM.setOnEnd(job => {
+  Store.record(job);
+  const tag = job.phase === 'done' ? (job.skipped ? '跳过' : '完成') : job.phase;
+  Log.info('任务' + tag + ' ' + job.name + ' → ' + job.out +
+    (job.error ? ' | ' + String(job.error).slice(0, 300) : ''));
+});
+const RESTORED = TM.restore(Store.load());
+// 磁盘看卫必须盯「本批实际要写入的目录」，不是配置里的 outputRoot。
+// 同级输出 / 手选输出目录都可能落在别的盘，盯错盘等于没盯。
+TM.setDiskGuard((outDir) => {
+  const base = outDir || CFG.outputRoot;
+  if (!base) return null;
+  const info = Disk.driveInfo(Paths.safePath(base));
   if (!info.ok) return null;
   // 必须返回 { enough } 结构；低于 2GB 时 pump() 会暂停派发新任务
   const LOW = 2 * 1024 * 1024 * 1024;
@@ -98,11 +124,19 @@ const routes = [
   { method: 'POST', exact: true, path: '/api/probe', handler: handleProbePost },
   { method: 'POST', exact: true, path: '/api/jobs', handler: handleJobsCreate },
   { method: 'GET', exact: true, path: '/api/jobs', handler: handleJobsGet },
+  { method: 'POST', exact: true, path: '/api/jobs/pause', handler: handleJobsPause },
+  { method: 'POST', exact: true, path: '/api/jobs/stop', handler: handleJobsStop },
+  { method: 'POST', exact: true, path: '/api/jobs/clear', handler: handleJobsClear },
   { method: 'POST', exact: true, path: '/api/resume', handler: handleResume },
+  { method: 'POST', exact: true, path: '/api/jobs/resume', handler: handleResume },
   { method: 'POST', regex: /^\/api\/jobs\/([^/]+)\/cancel$/, handler: handleCancel },
   { method: 'GET', exact: true, path: '/api/events', handler: handleEvents },
   { method: 'POST', exact: true, path: '/api/open', handler: handleOpen },
-  { method: 'GET', exact: true, path: '/api/log', handler: handleLog }
+  { method: 'GET', exact: true, path: '/api/log', handler: handleLog },
+  { method: 'GET', exact: true, path: '/api/logfile', handler: handleLogFile },
+  // 前端已拆成多个文件：public/style.css + public/js/*.js
+  // 只放行这两类白名单路径，其它一律 404，不给任意文件读取的口子
+  { method: 'GET', regex: /^\/(?:style\.css|js\/[A-Za-z0-9_-]+\.js)$/, handler: handleStatic }
 ];
 const route = H.createRouter(routes);
 
@@ -122,6 +156,18 @@ async function handleStatus(req, res) {
     versionShort: ver.ver || null,
     caps,
     drives: Disk.listDrives(),
+    // 码率模型只在后端定义一份，前端拿这份用，免得两边硬编码漂移
+    bitrate: {
+      bpp: Bitrate.BPP_TIERS,
+      fpsFallback: Bitrate.FPS_FALLBACK,
+      fpsMax: Bitrate.FPS_MAX,
+      floorKbps: Bitrate.FLOOR_KBPS,
+      ceilKbps: Bitrate.CEIL_KBPS,
+      hardMinKbps: Bitrate.HARD_MIN_KBPS,
+      srcRatio: Bitrate.SRC_RATIO,
+      defaultKbps: Bitrate.DEFAULT_KBPS
+    },
+    restored: RESTORED,
     sourceDefaultExists: fs.existsSync(CFG.sourceDir || '')
   });
 }
@@ -131,6 +177,7 @@ async function handleConfig(req, res) {
     const body = JSON.parse((await H.readBody(req)).toString('utf8') || '{}');
     CFG = Object.assign(CFG, body || {});
     saveConfig(CFG);
+    Log.info('配置变更: ' + Object.keys(body || {}).join(','));
     const rr = FFmpeg.resolve(CFG);
     TM.configure({ ffmpegExe: rr.ffmpeg, emit: broadcast, caps: rr.ffmpeg ? await FFmpeg.capabilities(rr.ffmpeg) : {} });
     return H.json(res, { ok: true, config: CFG, ffmpeg: rr.ffmpeg, ffprobe: rr.ffprobe, caps: rr.ffmpeg ? await FFmpeg.capabilities(rr.ffmpeg) : {} });
@@ -164,8 +211,9 @@ async function handlePick(req, res) {
   try { body = JSON.parse((await H.readBody(req)).toString('utf8') || '{}'); } catch (e) { /* ignore */ }
   const mode = body.mode === 'folder' ? 'folder' : 'file';
   const initialDir = String(body.initialDir || '');
+  const purpose = body.purpose === 'out' ? 'out' : 'src';
 
-  const pending = Pick.pick({ mode, initialDir });
+  const pending = Pick.pick({ mode, initialDir, purpose });
   let settled = false;
   // 页面刷新/关闭时立刻收掉对话框，别让锁卡住。
   // 注意：body 读完后 req 自己就会 emit 'close'（流 autoDestroy），那时监听还没挂上，
@@ -266,7 +314,7 @@ async function handleJobsCreate(req, res) {
     const srcDir = path.dirname(files[0].file);
     let outDir = body.outDir;
     if (!outDir) {
-      const cleanRoot = Paths.safePath(CFG.outputRoot || 'E:\\压缩完成');
+      const cleanRoot = Paths.safePath(CFG.outputRoot || DEFAULT_OUT);
       outDir = Paths.ensureOutputDir(cleanRoot, srcDir);
     } else {
       outDir = Paths.safePath(outDir);
@@ -301,15 +349,47 @@ async function handleJobsCreate(req, res) {
       rcLookahead: Number(body.rcLookahead !== undefined ? body.rcLookahead : CFG.rcLookahead) || 0,
       bref: body.bref !== undefined ? !!body.bref : !!CFG.bref,
       concurrency: Number(body.concurrency || CFG.concurrency || 2),
-      suffix: body.suffix || ''
+      suffix: body.suffix || '',
+      onConflict: CONFLICT_MODES.indexOf(body.onConflict) >= 0 ? body.onConflict
+        : (CONFLICT_MODES.indexOf(CFG.onConflict) >= 0 ? CFG.onConflict : 'skip')
     };
     // x265 默认串行，NVENC 默认 2（该卡双 NVENC）
     if (opts.encoder === 'x265' && (body.concurrency == null)) opts.concurrency = Math.min(opts.concurrency, 2);
 
-    // 磁盘预检：每个文件的分辨率/帧率不同，目标码率也不同，必须逐文件累加
+    // 试压：同一套参数，只截前 N 秒，输出名加 _试压
+    const preview = !!body.preview;
+    const limitSec = preview ? Math.max(3, Math.min(120, Number(body.previewSec) || 15)) : 0;
+    if (preview){
+      opts.preview = true;
+      opts.limitSec = limitSec;
+      opts.suffix = (opts.suffix || '') + '_试压';
+    }
+
+    // 先把输出路径全部定下来：同名策略、批次内重名都在这里一次算清楚。
+    // 以前重名靠 createJobs 里的 continue 静默丢弃，用户不知道少压了一集。
+    const taken = new Set();
+    const prepared = [];
+    let skipped = 0, renamed = 0;
+    for (const f of files) {
+      const base = Paths.outputFileFor(f.file, outDir, opts.suffix || '');
+      const r = Paths.resolveOutput(base, opts.onConflict, taken);
+      if (r.skipped) skipped++;
+      else {
+        taken.add(r.out.toLowerCase());
+        if (r.renamedFrom) renamed++;
+      }
+      prepared.push(Object.assign({}, f, {
+        out: r.out, skipped: !!r.skipped,
+        renamedFrom: r.renamedFrom || null, reason: r.reason || null
+      }));
+    }
+
+    // 磁盘预检：每个文件的分辨率/帧率不同，目标码率也不同，必须逐文件累加。
+    // 会被跳过的文件不占空间，这里直接排除。
     const ab = parseInt(String(opts.audioBitrate), 10) || 192;
     let need = 0;
-    for (const f of files) {
+    for (const f of prepared) {
+      if (f.skipped) continue;
       const p = Bitrate.planFile({
         width: f.video && f.video.width,
         height: f.video && f.video.height,
@@ -320,7 +400,9 @@ async function handleJobsCreate(req, res) {
         fixedKbps: opts.videoBitrate,
         tier: opts.qualityTier
       });
-      need += Bitrate.estimateBytes(p.kbps, ab, f.duration);
+      // 试压只压前 N 秒，预估体积也要按截断后的时长算
+      const estSec = limitSec ? Math.min(f.duration || limitSec, limitSec) : f.duration;
+      need += Bitrate.estimateBytes(p.kbps, ab, estSec);
     }
     const space = Disk.checkSpace(outDir, need, 0.85);
     if (!space.enough) {
@@ -330,11 +412,21 @@ async function handleJobsCreate(req, res) {
       }, 400);
     }
 
-    const jobs = TM.createJobs(files, opts);
-    CFG.outputRoot = path.dirname(outDir) === '.' ? CFG.outputRoot : CFG.outputRoot;
-    saveConfig(CFG);
+    const jobs = body.append ? TM.addJobs(prepared, opts) : TM.createJobs(prepared, opts);
+    Log.info((body.append ? '追加任务' : '开批') + ' ' + prepared.length + ' 个文件 → ' + outDir +
+      ' | 策略=' + opts.onConflict + ' 跳过=' + skipped + ' 改名=' + renamed +
+      (preview ? ' | 试压 ' + limitSec + 's' : ''));
+    // 记住策略，下次开批不用重新选
+    if (body.onConflict && CFG.onConflict !== opts.onConflict) {
+      CFG.onConflict = opts.onConflict;
+      saveConfig(CFG);
+    }
     setTimeout(() => TM.pump(), 60);
-    return H.json(res, { ok: true, outDir, need, space, jobs: jobs.map(j => TM.dump(j)) });
+    return H.json(res, {
+      ok: true, outDir, need, space, preview, limitSec,
+      onConflict: opts.onConflict, skipped, renamed,
+      jobs: jobs.map(j => TM.dump(j))
+    });
   } catch (e) {
     return H.json(res, { error: e.message }, 400);
   }
@@ -351,7 +443,31 @@ async function handleCancel(req, res, params) {
 
 function handleResume(req, res) {
   TM.resume();
-  return H.json(res, { ok: true });
+  return H.json(res, { ok: true, state: TM.emitState() });
+}
+
+function handleJobsPause(req, res) {
+  TM.pause('user');
+  return H.json(res, { ok: true, state: TM.emitState() });
+}
+
+function handleJobsStop(req, res) {
+  const n = TM.stopAll();
+  return H.json(res, { ok: true, stopped: n, state: TM.emitState() });
+}
+
+/**
+ * 清空历史：先停掉在跑的，再整体丢弃。
+ * 顺序不能反——先 clear 会让 close 回调拿到已出表的 job，
+ * .part 文件就没人清理了。
+ */
+async function handleJobsClear(req, res) {
+  let stopped = 0;
+  if (TM.activeCount() > 0) stopped = TM.stopAll();
+  TM.clear();
+  Store.clear();          // 历史也一起丢，否则重启后又冒出来
+  TM.emitState();
+  return H.json(res, { ok: true, stopped });
 }
 
 function handleEvents(req, res) {
@@ -460,6 +576,24 @@ function handleLog(req, res) {
   return H.text(res, lines.join('\n'));
 }
 
+function handleLogFile(req, res) {
+  const u = new URL(req.url, 'http://127.0.0.1');
+  const n = Number(u.searchParams.get('lines')) || 500;
+  return H.text(res, Log.tail(n));
+}
+
+// 静态资源（style.css / js/*.js）。路由正则已经限定形态，
+// 这里再做一次 resolve 后的前缀校验，双保险防止目录穿越。
+function handleStatic(req, res) {
+  const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
+  const base = path.resolve(ROOT, 'public');
+  const abs = path.resolve(base, pathname.replace(/^\/+/, ''));
+  if (abs !== base && abs.indexOf(base + path.sep) !== 0) {
+    return H.json(res, { error: 'Forbidden' }, 403);
+  }
+  return H.serveFile(res, abs);
+}
+
 // ---------- 启动 ----------
 const server = http.createServer((req, res) => {
   let pathname;
@@ -473,12 +607,18 @@ const server = http.createServer((req, res) => {
     return H.json(res, { error: 'Not Found', path: pathname }, 404);
   }
   Promise.resolve(m.handler(req, res, m.params)).catch(err => {
-    if (!res.writableEnded) H.json(res, { error: err && err.message ? err.message : String(err) }, 500);
+    const msg = err && err.message ? err.message : String(err);
+    Log.error('500 ' + pathname + ' | ' + msg);
+    if (!res.writableEnded) H.json(res, { error: msg }, 500);
   });
 });
 
 function listen(startPort, tries) {
   const port = startPort;
+  // 上一次 listen 失败时，注册的 'listening' 回调还挂在 server 上。
+  // 不清掉的话，端口顺延成功后这个回调会连同新的一起执行——启动横幅和日志都会打两遍。
+  server.removeAllListeners('listening');
+  server.removeAllListeners('error');
   server.once('error', (e) => {
     if (e.code === 'EADDRINUSE' && tries > 0) {
       console.log(`端口 ${port} 被占用，改用 ${port + 1}`);
@@ -488,7 +628,7 @@ function listen(startPort, tries) {
       process.exit(1);
     }
   });
-  server.listen(port, '127.0.0.1', async () => {
+  server.once('listening', async () => {
     const url = `http://127.0.0.1:${server.address().port}`;
     const rr = FFmpeg.resolve(CFG);
     let caps = {}, ver = { raw: '', ver: null };
@@ -507,10 +647,13 @@ function listen(startPort, tries) {
     console.log('   输出根   : ' + CFG.outputRoot);
     console.log('  ============================================================');
     console.log('');
+    Log.info('服务启动 ' + url + ' | ffmpeg=' + (rr.ffmpeg || '未找到') +
+      ' | 恢复历史 ' + RESTORED + ' 条');
     // 自动打开浏览器（用 explorer 直接打开 URL，不经过 cmd；同样不能加 windowsHide）
     try { spawn('explorer.exe', [url], { detached: true, stdio: 'ignore' }).unref(); }
     catch (e) { /* ignore */ }
   });
+  server.listen(port, '127.0.0.1');
 }
 
 listen(Number(CFG.port) || 8787, 10);
