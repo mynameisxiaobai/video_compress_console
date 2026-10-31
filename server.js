@@ -26,7 +26,9 @@ const CONFLICT_MODES = ['skip', 'rename', 'overwrite'];
 
 // ---------- 配置 ----------
 const defaultConfig = () => ({
-  ffmpegPath: path.join(HOME, 'tools', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+  // 留空 = 自动查找：程序目录自带的 ffmpeg\ → C:\ffmpeg\bin → PATH。
+  // 便携版就是靠这个，不写死任何本机路径。
+  ffmpegPath: '',
   ffprobePath: null,
   port: 8787,
   sourceDir: DEFAULT_SRC,
@@ -66,7 +68,11 @@ const defaultConfig = () => ({
 function loadConfig() {
   try {
     const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
-    return Object.assign(defaultConfig(), JSON.parse(raw));
+    const cfg = Object.assign(defaultConfig(), JSON.parse(raw));
+    // 手改配置时容易把路径清空，空的 outputRoot 会让输出目录变成「当前目录」，这里兜一下
+    if (typeof cfg.outputRoot !== 'string' || !cfg.outputRoot.trim()) cfg.outputRoot = DEFAULT_OUT;
+    if (typeof cfg.ffmpegPath !== 'string') cfg.ffmpegPath = '';
+    return cfg;
   } catch (e) {
     const cfg = defaultConfig();
     try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); } catch (e2) {}
@@ -643,6 +649,15 @@ function listen(startPort, tries) {
       console.log('   版本     : ' + (ver.raw || '?'));
       console.log('   能力     : NVENC=' + (caps.hevc_nvenc ? '可用' : '不可用') +
                   '   x265=' + (caps.libx265 ? '可用' : '不可用'));
+    } else {
+      // 首次运行最常见的卡点，直接把两条出路写清楚
+      console.log('');
+      console.log('   [需要 ffmpeg] 还没找到 ffmpeg.exe，页面能打开但压不了。两种办法：');
+      console.log('     1) 把 ffmpeg 解压到本目录，让路径长这样：');
+      console.log('        ' + path.join(ROOT, 'ffmpeg', 'bin', 'ffmpeg.exe'));
+      console.log('        下载：https://www.gyan.dev/ffmpeg/builds/  （选 essentials）');
+      console.log('     2) 或在页面左下「程序设置」里填 ffmpeg.exe 的完整路径');
+      console.log('');
     }
     console.log('   输出根   : ' + CFG.outputRoot);
     console.log('  ============================================================');

@@ -28,7 +28,9 @@ async function boot(){
   const CF = ['skip', 'rename', 'overwrite'];
   $('#advConflict').value = CF.indexOf(cfg.onConflict) >= 0 ? cfg.onConflict : 'skip';
   // 程序设置
-  $('#setFF').value = cfg.ffmpegPath || '';
+  // 自动发现时 config.ffmpegPath 是空的，这里回填「实际认到的那个」，
+  // 用户才知道程序用的是哪个 ffmpeg（保存时写回同一路径，无害）
+  $('#setFF').value = cfg.ffmpegPath || (ST.status && ST.status.ffmpeg) || '';
   $('#setFP').value = cfg.ffprobePath || '';
   $('#setRoot').value = cfg.outputRoot || '';
   $('#setPort').value = cfg.port || 8787;
@@ -53,7 +55,28 @@ async function boot(){
   }
   updateSpec(); updateNeed(); updateSel();   // updateSel 负责把空状态下的全选/反选置灰
   if (ST.status && ST.status.sourceDefaultExists) doScan(true);
+  needFfmpeg();
   connectSSE();
+}
+
+/* 第一次用最常见的卡点：装好 Node 却忘了 ffmpeg，页面能开、点了却压不了。
+   三处一起说：顶部红标、右侧空态区、设置面板（顺手摊开）。 */
+function needFfmpeg(){
+  if (ST.status && ST.status.ffmpeg) return false;
+  const d = $('#settings');
+  if (d) d.open = true;
+  flash($('#setMsg'), 'err',
+    '还没找到 ffmpeg。把 ffmpeg 解压到程序目录的 <b>ffmpeg\\bin\\</b> 下（' +
+    '下载 https://www.gyan.dev/ffmpeg/builds/ 选 essentials），或在下面填 ffmpeg.exe 的完整路径。');
+  const box = $('#empty');
+  if (box && !box.querySelector('.ffwarn')){
+    const w = el('div','ffwarn');
+    w.innerHTML = '还没找到 <b>ffmpeg</b>：把 ffmpeg 解压到程序目录的 <b>ffmpeg\\bin\\</b>，' +
+      '或在左侧「程序设置」里填 ffmpeg.exe 的路径。' +
+      '<br><a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noreferrer">打开下载页（选 essentials）</a>';
+    box.appendChild(w);
+  }
+  return true;
 }
 
 function renderChips(st){
@@ -67,7 +90,9 @@ function renderChips(st){
     const c3 = el('span','chip ' + (caps.libx265?'ok':'bad'));
     c3.innerHTML = 'x265 <b>'+(caps.libx265?'可用':'不可用')+'</b>'; wrap.appendChild(c3);
   } else {
-    const c = el('span','chip bad'); c.innerHTML = 'ffmpeg <b>未找到</b>'; wrap.appendChild(c);
+    const c = el('span','chip bad'); c.innerHTML = 'ffmpeg <b>未找到</b>';
+    c.title = '把 ffmpeg 解压到程序目录的 ffmpeg\\bin\\，或在「程序设置」里指定路径';
+    wrap.appendChild(c);
   }
   const root = String(((st&&st.config&&st.config.outputRoot)||'')).slice(0,3).toUpperCase();
   const d = ((st&&st.drives)||[]).find(x => x.root === root);

@@ -32,17 +32,59 @@
 
 ### 环境要求
 
-- **Node.js 18.15+**（用到了 `fs.statfsSync`，推荐 20 LTS）
-- **ffmpeg + ffprobe**：带 `h264_nvenc` 的 NVIDIA 卡可用硬件编码；没有独显会自动走 `libx265`
+- **完整版（`-full.zip`）什么都不用装**：包内已带 `node.exe` 和 ffmpeg
+- **精简版（`-lite.zip`）**：需要 **Node.js 18.15+**（用到了 `fs.statfsSync`，推荐 20 LTS）和 **ffmpeg + ffprobe**
+- 带 `h264_nvenc` 的 NVIDIA 卡可用硬件编码；没有独显会自动走 `libx265`
 - Windows 10/11（文件选择框、打开文件夹为 Windows 原生实现）
 
-### 启动
+### 方式一：下载解压版
 
-```bat
-双击 start.bat
+两个包内容一样，只差运行时要不要自备：
+
+| 包 | 解压后 | 装 Node.js | 备 ffmpeg | 适合谁 |
+|---|---|---|---|---|
+| `video-compress-console-1.0.0-full.zip` | ~290 MB | 不用（包内 `node.exe`） | 不用（内置 ffmpeg 9.0.2） | 想解压就能用 |
+| `video-compress-console-1.0.0-lite.zip` | ~9 MB | 要 | 要 | 本机已有 Node + ffmpeg |
+
+**完整版：解压即用**
+
+1. 到 [Releases](../../releases) 下载 `-full.zip`，解压到任意目录（路径别含特殊符号）
+2. 双击 **`start.bat`**，浏览器自动打开 <http://127.0.0.1:8787>
+
+绿色免安装：不写注册表、不装服务、不开机自启，删掉目录就是卸载干净。
+
+**精简版：自带运行时的人用这个**
+
+1. 下载 `-lite.zip` 解压
+2. 装 **Node.js 18.15+**（<https://nodejs.org/> 选 LTS，一路下一步）
+3. 把 ffmpeg 的 `ffmpeg.exe`、`ffprobe.exe` 放进程序目录的 `ffmpeg\bin\`：
+
+   ```
+   video-compress-console\
+   ├── start.bat
+   └── ffmpeg\
+       └── bin\
+           ├── ffmpeg.exe
+           └── ffprobe.exe
+   ```
+
+   ffmpeg 去哪下：<https://www.gyan.dev/ffmpeg/builds/> 选 `essentials` 那个 zip（带 NVENC 和 x265）。
+   整个 `ffmpeg-x.x-essentials_build` 文件夹直接丢进程序目录也能认出来。
+
+4. 双击 **`start.bat`**
+
+没放 ffmpeg 也能启动，界面照常显示，只是点「开始压缩」压不了——顶部会亮红标，设置面板也会直接展开告诉你去哪下。
+
+> 查找顺序：Node 先看包内 `node.exe`，再 PATH，再 `Program Files\nodejs`；ffmpeg 先看包内 `ffmpeg\bin`，再看程序目录其他位置、`C:\ffmpeg\bin`，最后 PATH。两样都能在左侧「程序设置」里手动指定。
+
+### 方式二：从源码跑
+
+```bash
+git clone https://github.com/mynameisxiaobai/video_compress_console.git
+cd video_compress_console
 ```
 
-或手动：
+然后同样双击 `start.bat`，或手动：
 
 ```bash
 node server.js
@@ -59,7 +101,7 @@ node server.js
 cp config.example.json config.json
 ```
 
-必须确认的一项：`ffmpegPath` 指向你的 `ffmpeg.exe`。也可以在页面右上角的设置里改，保存后即时生效。
+`ffmpegPath` 留空 = 自动查找（程序目录的 `ffmpeg\bin` → `C:\ffmpeg\bin` → 系统 PATH）。也可以填死路径，或在页面的「程序设置」里改，保存后即时生效。
 
 ## 怎么用
 
@@ -199,10 +241,13 @@ cp config.example.json config.json
 ```
 video-compress-console/
 ├── server.js               # 入口：HTTP 服务 + 全部路由
-├── start.bat               # Windows 一键启动（自动找 Node）
+├── start.bat               # Windows 一键启动（自动找 Node，报告 ffmpeg 状态）
+├── node.exe                # 仅完整版包内自带（git 忽略）
 ├── config.json             # 本机配置（git 忽略）
 ├── config.example.json     # 配置模板
 ├── LICENSE                 # MIT
+├── ffmpeg/                 # 完整版：bin\ffmpeg.exe + bin\ffprobe.exe + GPLv3 LICENSE
+│                           # 精简版：只有一份 README.txt 告诉你文件往哪放
 ├── lib/
 │   ├── http.js             # 极简 HTTP 工具：路由 / JSON / SSE / 静态文件
 │   ├── ffmpeg.js           # ffmpeg/ffprobe 定位、能力与版本探测、参数拼装
@@ -241,11 +286,11 @@ video-compress-console/
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `ffmpegPath` | `~\tools\ffmpeg\bin\ffmpeg.exe` | ffmpeg 可执行文件路径 |
+| `ffmpegPath` | 空（自动查找） | 留空则依次找：程序目录 `ffmpeg\` → `C:\ffmpeg\bin` → 系统 PATH |
 | `ffprobePath` | `null` | 留空则自动取 ffmpeg 同目录的 ffprobe |
 | `port` | `8787` | 端口，占用自动 +1 重试（最多 10 次） |
 | `sourceDir` | — | 上次使用的源目录 |
-| `outputRoot` | `E:\压缩完成` | 集中输出的根目录 |
+| `outputRoot` | 用户目录下 `Videos\压缩完成` | 集中输出的根目录 |
 | `encoder` | `nvenc` | `nvenc` 或 `x265` |
 | `maxShortSide` | `1080` | 短边上限，只降不升，`0` = 不缩放 |
 | `rateMode` | `auto` | `auto` 按内容计算 / `fixed` 用固定值 |
@@ -300,11 +345,12 @@ video-compress-console/
 - 位图字幕（PGS/VobSub）无法转 `mov_text`，会跳过并记录。
 - 前端是九个共享全局作用域的 `<script>`，不是 module。新增顶层变量时注意别和已有名字撞车——`const` 重复声明会让整个页面白屏。
 - `data/` 由程序自己维护（`history.jsonl` 超过 400 条或 3 MB 自动裁剪，`server.log` 超过 2 MB 自动截断），不用手动清理。
+- **完整版解压后约 290 MB**（内含 `node.exe` 与 ffmpeg 两个 exe）。嫌大就用 `-lite.zip` 配本机已有的运行时。首次运行时部分杀软会对包内 `node.exe` 联网行为弹窗，放行即可。
 
 ## FAQ
 
 **Q：启动提示找不到 ffmpeg？**
-页面右上角设置里指定 `ffmpeg.exe` 路径，或把它加进 PATH。首次启动若路径不存在，页面会提示。
+三种办法，任选其一：把 ffmpeg 解压到程序目录的 `ffmpeg\bin\`（自动识别，最省事）；在左侧「程序设置」里填 `ffmpeg.exe` 的完整路径；或者把它加进系统 PATH。缺 ffmpeg 时页面顶部会亮红标，设置面板会自动展开提示。
 
 **Q：没有 NVIDIA 显卡能用吗？**
 可以。页面设置里把编码器切成 `x265`，纯 CPU 编码，速度慢但画质可控。启动日志里会显示 `NVENC=不可用 x265=可用`。
@@ -329,4 +375,16 @@ video-compress-console/
 
 ## License
 
-[MIT](LICENSE)
+程序本体 [MIT](LICENSE)。
+
+### 第三方组件（仅完整版包携带）
+
+完整版 `-full.zip` 为了做到解压即用，打包了以下运行时，它们不进入本仓库：
+
+| 组件 | 版本 | 许可 | 来源 |
+|---|---|---|---|
+| Node.js `node.exe` | v24.14.1 | MIT | <https://nodejs.org/> |
+| ffmpeg / ffprobe | 9.0.2 essentials_build | **GPLv3** | <https://www.gyan.dev/ffmpeg/builds/> |
+
+ffmpeg 的 GPLv3 全文随包放在 `ffmpeg\LICENSE`，版本、编译配置与源码获取方式见 `ffmpeg\THIRD-PARTY.txt`
+（对应源码：<https://github.com/GyanD/codexffmpeg>）。程序通过子进程调用 ffmpeg，未修改其源码。

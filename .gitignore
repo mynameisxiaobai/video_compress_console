@@ -12,6 +12,21 @@ npm-debug.log*
 # 运行时数据（任务历史 JSONL、运行日志），不要提交
 data/
 
+# 打包产物（发版用的 zip 与解压目录，走 Release 而不是仓库）
+release/
+dist/
+*.zip
+
+# 本地放的 ffmpeg 二进制（体积大、许可另说，别提交）
+ffmpeg/bin/
+ffmpeg/*.exe
+ffmpeg/LICENSE
+ffmpeg/THIRD-PARTY.txt
+ffmpeg/FFMPEG-README.txt
+
+# 完整版发布包里内置的 Node 运行时（打包时临时拷入，不入库）
+node.exe
+
 # 系统垃圾
 Thumbs.db
 ehthumbs.db
