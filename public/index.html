@@ -187,6 +187,9 @@
 
     <div class="deskhead">
       <div class="dhtop">
+        <button class="sidebtn" id="btnSide" title="收起左侧文件列，队列占满整个宽度" aria-expanded="true">
+          <span class="sarrow">‹</span><span>文件列</span>
+        </button>
         <h2>队列</h2>
         <span class="dhsub" id="dhSub">尚未开始</span>
         <div class="dhright">
@@ -211,6 +214,7 @@
         <span class="sep" id="runSep" hidden></span>
         <button class="lnk" id="btnExpandAll" disabled>展开全部</button>
         <button class="lnk" id="btnFoldAll" disabled>折叠全部</button>
+        <button class="lnk" id="btnCompact" title="隐藏文件名、大小与明细，每行只留一条进度">只看进度</button>
         <span class="sep"></span>
         <button class="lnk danger" id="btnClearJobs" title="清空文件列表、源/输出目录和任务历史（可撤销）">清空</button>
       </div>

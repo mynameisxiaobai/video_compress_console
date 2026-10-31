@@ -26,7 +26,9 @@ const ST = {
   paused:false,                // 队列是否已暂停派发（与 lastState.paused 同步）
   need:0, avail:0, outDirty:false, needTimer:0,
   beside:false,                // 输出到源目录同级（原名_压缩）
-  filter:'all'                 // 队列筛选：all / open / done / bad
+  filter:'all',                // 队列筛选：all / open / done / bad
+  compact:false,               // 只看进度：隐藏文件名/大小/明细，每行只留一条进度
+  sideHidden:false             // 手动收起左栏（「只看进度」时也会自动收起）
 };
 const JOBS = new Map();      // id -> job
 const FOLDED = new Set();    // 已折叠的 id
@@ -69,6 +71,11 @@ const spanDur = s => { const v=Math.max(0,Math.round(Number(s)||0));
   if(v>=3600) return Math.floor(v/3600)+' 时 '+Math.round(v%3600/60)+' 分';
   if(v>=60) return Math.floor(v/60)+' 分';
   return v+' 秒'; };
+// 视频码率：850 kbps / 2.8 Mbps（整数位多的时候不再留小数）
+const kbps = n => { const v=Number(n)||0;
+  if(!v) return '';
+  if(v<1000) return v+' kbps';
+  return (v/1000).toFixed(v>=10000?0:2).replace(/\.?0+$/,'')+' Mbps'; };
 
 async function api(path, opt){
   const r = await fetch(path, opt);

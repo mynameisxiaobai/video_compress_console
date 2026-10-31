@@ -18,9 +18,14 @@ function createRow(id){
   row.appendChild(el('span','jstate','—'));
   row.appendChild(el('span','jname',''));
   row.appendChild(el('span','jsum',''));
+  // 只看进度模式下用它顶替文件名与大小，占满中间
+  const pbar = el('span','pbar');
+  pbar.appendChild(el('i'));
+  row.appendChild(pbar);
   row.appendChild(el('span','jpct','0%'));
   row.appendChild(el('span','jcaret','▾'));
   const det = el('div','jdetail');
+  det.appendChild(el('div','jcmp'));       // 压缩前后对照，只在完成时填内容
   det.appendChild(el('div','jdmeta'));
   det.appendChild(el('div','jdact'));
   li.appendChild(row); li.appendChild(det);
@@ -67,8 +72,16 @@ function paint(li, j){
   if (j.skipped){
     sum.textContent = '—';
   } else if (j.phase === 'done' && j.outSize){
-    const cut = j.srcSize > 0 ? ((1 - j.outSize / j.srcSize) * 100).toFixed(0) + '%' : '';
-    sum.innerHTML = human(j.outSize) + (cut ? ' <em>−' + cut + '</em>' : '');
+    // 折叠后这一行就是全部信息，所以压缩前后必须都在这里，
+    // 否则只剩一个孤零零的结果大小，看不出省了多少。
+    const hasSrc = j.srcSize > 0;
+    const cut = hasSrc ? Math.round((1 - j.outSize / j.srcSize) * 100) : null;
+    sum.innerHTML =
+      (hasSrc ? human(j.srcSize) + '<span class="arw">→</span>' : '') +
+      human(j.outSize) +
+      (cut === null ? ''
+        : ' <em' + (cut < 0 ? ' class="up"' : '') + '>' +
+          (cut < 0 ? '+' : '−') + Math.abs(cut) + '%</em>');
   } else if (j.phase === 'failed'){
     sum.textContent = '—';
   } else {
@@ -80,6 +93,30 @@ function paint(li, j){
     : (j.phase === 'done'
       ? dur(j.elapsedSec || 0)
       : (j.pct || 0).toFixed(j.phase === 'queued' ? 0 : 1) + '%');
+
+  // 压缩前后对照。跳过/试压不画：一个没产出，一个只压了 15 秒，
+  // 拿它和整片大小比值会算出「省 97%」这种假数字。
+  const cmp = li.querySelector('.jcmp');
+  cmp.innerHTML = '';
+  const hasCmp = j.phase === 'done' && !j.skipped && !j.preview && j.outSize > 0 && j.srcSize > 0;
+  if (hasCmp){
+    const ratio = j.srcSize / j.outSize;
+    const cut = (1 - j.outSize / j.srcSize) * 100;
+    const cell = (k, big, sub, cls) =>
+      '<div class="cs' + (cls ? ' ' + cls : '') + '">' +
+        '<span class="k">' + k + '</span>' +
+        '<span class="v">' + big + '</span>' +
+        (sub ? '<span class="s">' + sub + '</span>' : '') +
+      '</div>';
+    cmp.innerHTML =
+      cell('压缩前', human(j.srcSize), j.srcKbps ? '视频 ' + kbps(j.srcKbps) : '') +
+      '<div class="ca">→</div>' +
+      cell('压缩后', human(j.outSize), j.targetKbps ? '视频 ' + kbps(j.targetKbps) : '目标', 'out') +
+      '<div class="cr' + (cut < 0 ? ' up' : '') + '">' +
+        '<b>' + ratio.toFixed(ratio >= 10 ? 0 : 1) + '<small>×</small></b>' +
+        '<span>' + (cut < 0 ? '反而大了 ' : '省 ') + Math.abs(cut).toFixed(1) + '%</span>' +
+      '</div>';
+  }
 
   // 明细
   const meta = li.querySelector('.jdmeta'); meta.innerHTML = '';
@@ -105,9 +142,14 @@ function paint(li, j){
     if (j.bitrate) add('实时', j.bitrate);
     if (j.outSize) add('已写', human(j.outSize));
   } else if (j.phase === 'done'){
-    if (j.outSize) add('输出', human(j.outSize));
-    if (j.srcSize > 0 && j.outSize) add('压缩率', ((1 - j.outSize/j.srcSize)*100).toFixed(1) + '%');
+    // 压缩前后的大小与比值已经在上面那块对照里了，这里只说过程和附带信息
+    if (!hasCmp){
+      if (j.outSize) add('输出', human(j.outSize));
+      if (j.srcSize > 0 && j.outSize) add('压缩率', ((1 - j.outSize/j.srcSize)*100).toFixed(1) + '%');
+    }
+    if (j.duration) add('时长', dur(j.duration));
     if (j.elapsedSec) add('耗时', spanDur(j.elapsedSec));
+    if (j.duration && j.elapsedSec) add('实时', (j.duration / j.elapsedSec).toFixed(1) + '×');
     if (j.keepSubtitle) add('字幕', '已保留');
     if (j.subSkipped) add('字幕', '位图字幕已跳过');
     if (j.preview) add('类型', '试压片段（前 ' + (j.limitSec || 15) + ' 秒）');
@@ -144,6 +186,7 @@ function setFold(id, fold){
 /* 行点击：展开 / 折叠 */
 jobsEl.addEventListener('click', e => {
   const li = e.target.closest('.job'); if (!li) return;
+  if (ST.compact) return;                // 只看进度时没有可展开的内容
   if (e.target.closest('.jdact')) return;
   const id = li.dataset.id;
   const j = JOBS.get(id); if (!j) return;
@@ -151,6 +194,61 @@ jobsEl.addEventListener('click', e => {
   setFold(id, !isFolded(id));
   paintHead();
 });
+
+/* ---------- 左栏开合：手动收起 /「只看进度」自带收起 ---------- */
+// 收起后队列横向多出 378px，长剧集盯进度时不用再往左瞄。
+// 只有 sideHidden 一个事实来源：「只看进度」开的时候把它置为收起（因此看进度时不占宽度），
+// 但用户仍可以手动展开去改目录，两个开关互不覆盖。
+const benchEl = $('.bench');
+const sideEl  = $('.order');
+
+function paintSide(){
+  const off = !!ST.sideHidden;
+  benchEl.classList.toggle('collapsed', off);
+  if (sideEl) sideEl.inert = off;      // 看不清的输入框不该还能被 Tab 跳进去
+  const b = $('#btnSide');
+  if (!b) return;
+  b.querySelector('.sarrow').textContent = off ? '›' : '‹';
+  b.classList.toggle('on', off);
+  b.setAttribute('aria-expanded', off ? 'false' : 'true');
+  b.title = off
+    ? (ST.compact ? '展开左侧文件列（「只看进度」的排版不变）' : '展开左侧文件列')
+    : '收起左侧文件列，队列占满整个宽度';
+}
+
+function setSide(hidden){
+  ST.sideHidden = !!hidden;
+  try { localStorage.setItem('vcc.side', ST.sideHidden ? '1' : '0'); } catch(e){}
+  paintSide();
+}
+
+$('#btnSide').addEventListener('click', () => setSide(!ST.sideHidden));
+
+/* ---------- 只看进度：把文件信息收起来，一行只留进度 ---------- */
+// 30 集同时跑的时候，文件名和大小其实没人看，占的横向空间却不少。
+// 这个开关只切视图，不动任何任务状态，展开/折叠的偏好也不受影响。
+function setCompact(on){
+  ST.compact = !!on;
+  ST.sideHidden = ST.compact;            // 盯进度时左栏让位；退出时放回来
+  jobsEl.classList.toggle('compact', ST.compact);
+  const b = $('#btnCompact');
+  if (b){
+    b.textContent = ST.compact ? '显示详情' : '只看进度';
+    b.classList.toggle('on', ST.compact);
+    b.title = ST.compact
+      ? '恢复显示文件名、大小与压缩前后对照'
+      : '隐藏文件名、大小与明细，每行只留一条进度';
+  }
+  if (ST.compact) try { localStorage.setItem('vcc.side', '1'); } catch(e){}
+  else try { localStorage.setItem('vcc.side', '0'); } catch(e){}
+  try { localStorage.setItem('vcc.compact', ST.compact ? '1' : '0'); } catch(e){}
+  paintSide();
+}
+$('#btnCompact').addEventListener('click', () => setCompact(!ST.compact));
+// 记住上次的选择：压一整晚会盯着看进度，下次打开就还是这个视图
+try { if (localStorage.getItem('vcc.compact') === '1') setCompact(true); } catch(e){}
+try { if (localStorage.getItem('vcc.side') === '1') ST.sideHidden = true; } catch(e){}
+paintSide();
 
 /* ---------- 运行控制：暂停 / 停止 ---------- */
 let stopArmTimer = 0;
