@@ -245,20 +245,29 @@ async function handleLocate(req, res) {
     if (!items.length) return H.json(res, { ok: false, error: '没有收到拖入的内容', matches: [] }, 400);
 
     const hint = String(body.hint || CFG.sourceDir || '');
-    const r = Locate.locate(items, { hint: hint, budget: 6000 });
+    // 默认 4 秒：够扫完常见位置，又不至于让人盯着「正在定位」发呆。
+    // 前端「再搜 10 秒」会带着更大的 budget 再来一次。
+    const budget = Number(body.budget) > 0 ? Number(body.budget) : 4000;
+    const r = await Locate.locate(items, { hint: hint, budget: budget });
 
     const matches = r.matches.slice(0, 6).map(m => ({
       dir: m.dir,
       kind: m.kind,
       hits: m.hits,
       names: m.names,
-      videos: m.videos
+      videos: m.videos,
+      score: m.score,
+      from: m.from
     }));
     return H.json(res, {
       ok: matches.length > 0,
       matches: matches,
       scanned: r.scanned,
-      ms: r.ms
+      ms: r.ms,
+      // timeout=true 表示「到点了还没找到」，和「扫完了确实没有」是两回事，
+      // 前端据此决定是劝用户换办法，还是直接说没搜到
+      timeout: !!r.timeout,
+      source: r.source || 'scan'
     });
   } catch (e) {
     return H.json(res, { ok: false, error: e.message, matches: [] }, 400);
@@ -373,17 +382,25 @@ async function handleJobsCreate(req, res) {
 
     // 先把输出路径全部定下来：同名策略、批次内重名都在这里一次算清楚。
     // 以前重名靠 createJobs 里的 continue 静默丢弃，用户不知道少压了一集。
+    // 带 rel 的文件（递归扫描来的）按源目录结构镜像到 outDir 的子目录里。
     const taken = new Set();
     const prepared = [];
     let skipped = 0, renamed = 0;
     for (const f of files) {
-      const base = Paths.outputFileFor(f.file, outDir, opts.suffix || '');
+      const base = Paths.outputFileFor(f.file, outDir, opts.suffix || '', f.rel || '');
       const r = Paths.resolveOutput(base, opts.onConflict, taken);
-      if (r.skipped) skipped++;
-      else {
-        taken.add(r.out.toLowerCase());
-        if (r.renamedFrom) renamed++;
+      if (!r.skipped) {
+        // 子目录要在任务开跑前建好，否则 ffmpeg 写 .part 会因目录不存在失败
+        try {
+          fs.mkdirSync(path.dirname(r.out), { recursive: true });
+          taken.add(r.out.toLowerCase());
+          if (r.renamedFrom) renamed++;
+        } catch (e) {
+          r.skipped = true;
+          r.reason = '无法创建输出子目录: ' + e.message;
+        }
       }
+      if (r.skipped) skipped++;
       prepared.push(Object.assign({}, f, {
         out: r.out, skipped: !!r.skipped,
         renamedFrom: r.renamedFrom || null, reason: r.reason || null

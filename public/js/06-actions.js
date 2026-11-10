@@ -15,7 +15,9 @@ function jobBody(files){
     files: files.map(f => ({
       file:f.file, name:f.name, size:f.size, duration:f.duration,
       container:f.container, video:f.video, audio:f.audio,
-      subtitleOk:f.subtitleOk, hasSubtitle:f.hasSubtitle
+      subtitleOk:f.subtitleOk, hasSubtitle:f.hasSubtitle,
+      // 递归扫描来的文件带着相对路径，服务端据此在输出目录里建同名子文件夹
+      rel:f.rel || ''
     })),
     outDir: normOutDir($('#outDir').value),
     encoder: ST.enc,

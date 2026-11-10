@@ -47,12 +47,50 @@ function syncOutMode(){
   $('#outBeside').disabled = !$('#srcDir').value.trim();
 }
 
+/**
+ * 输入框里可能粘着一串路径——资源管理器「复制为路径」出来的是
+ * "E:\剧集" 这种带引号、空格分隔的格式，也可能是一行一个。
+ */
+function parsePathList(raw){
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  const quoted = s.match(/"([^"]+)"|'([^']+)'/g);
+  if (quoted && quoted.length) return quoted.map(q => q.slice(1, -1).trim()).filter(Boolean);
+  if (/[\r\n]/.test(s)) return s.split(/\r?\n/).map(x => x.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  return [s];
+}
+
 /* ---------- 扫描 / 载入 ---------- */
+/**
+ * @param {boolean} [silent] 不写「正在读取…」提示
+ * @param {boolean} [recursive] 覆盖「含子目录」开关（拖拽整季时强制递归）
+ */
 async function doScan(silent, recursive){
-  const dir = $('#srcDir').value.trim();
-  if (!dir){ flash($('#srcMsg'),'err','请先选择或填写文件夹路径'); return; }
-  if (!silent) flash($('#srcMsg'),'', '正在读取 ' + esc(dir.length>46?dir.slice(0,46)+'…':dir) + ' …');
-  const r = await post('/api/probe', { dir, recursive: !!recursive });
+  const raw = $('#srcDir').value.trim();
+  if (!raw){ flash($('#srcMsg'),'err','请先选择或填写文件夹路径'); return; }
+
+  // 粘进来一串路径：全是文件就直接当散文件载入，带目录就取第一个目录来扫
+  const list = parsePathList(raw);
+  if (list.length > 1){
+    const looksDir = p => /[\\/]$/.test(p) || !/\.[A-Za-z0-9]{1,5}$/.test(p);
+    const files = list.filter(p => !looksDir(p));
+    const dirs = list.filter(looksDir);
+    if (files.length && !dirs.length){ await loadPaths(files); return; }
+    if (dirs.length){
+      $('#srcDir').value = dirs[0];
+      return doScan(silent, recursive);
+    }
+  }
+
+  const dir = list[0] || raw;
+  const rec = recursive === undefined
+    ? !!($('#chkSub') && $('#chkSub').checked)
+    : !!recursive;
+  if (!silent) {
+    flash($('#srcMsg'),'', '正在读取 ' + esc(dir.length>46?dir.slice(0,46)+'…':dir) +
+      (rec ? ' （含子目录）' : '') + ' …');
+  }
+  const r = await post('/api/probe', { dir, recursive: rec });
   if (r.error){ flash($('#srcMsg'),'err','扫描失败：' + esc(r.error)); return; }
   applyFiles(r.files || [], r);
   persist({ sourceDir: dir });
@@ -236,10 +274,23 @@ function renderSrcMsg(){
   const sub = ST.files.filter(f=>f.subtitleOk).length;
   const bad = ST.files.filter(f=>f.error).length;
   const dup = ST.files.filter(f=>f.disguised).length;
+  // 递归扫描时告诉用户这些文件散落在几个子目录里——输出会按同样的结构生成
+  const subdirs = new Set();
+  ST.files.forEach(f => {
+    const rel = String(f.rel || '');
+    const i = Math.max(rel.lastIndexOf('\\'), rel.lastIndexOf('/'));
+    if (i > 0) subdirs.add(rel.slice(0, i).toLowerCase());
+  });
   let h = '共 <b>' + n + '</b> 个视频 · <b>' + human(total) + '</b>';
   if (appended) h += ' · 本次追加 <b>' + appended + '</b>';
   if (sub) h += ' · 内挂字幕 <b>' + sub + '</b>';
+  if (subdirs.size) h += ' · 分布在 <b>' + subdirs.size + '</b> 个子目录';
   flash(box, bad?'warn':'ok', h);
+  if (subdirs.size) {
+    const d = el('div','line dim');
+    d.innerHTML = '<span>输出会照源目录的影子建同名的子文件夹。</span>';
+    box.appendChild(d);
+  }
   if (dup) {
     const d = el('div','line warn');
     d.innerHTML = '<span><b>' + dup + ' 个文件扩展名与真实容器不符</b>，已按真实容器处理，不影响结果。</span>';
@@ -262,7 +313,13 @@ function renderFiles(){
     const cb = document.createElement('input');
     cb.type = 'checkbox'; cb.checked = ST.sel.has(f.file);
     li.appendChild(cb);
-    li.appendChild(el('span','fname', (f.rel && f.rel.indexOf('\\') >= 0) ? f.rel : f.name));
+    // 递归扫描来的文件带相对路径，用 › 分隔显示，比反斜杠更像是「在哪个子文件夹里」
+    const relShow = (f.rel && /[\\/]/.test(f.rel))
+      ? f.rel.replace(/[\\/]+/g, ' › ')
+      : f.name;
+    const nameEl = el('span','fname', relShow);
+    nameEl.title = f.file || f.name;
+    li.appendChild(nameEl);
     if (f.subtitleOk) li.appendChild(el('span','fsub','字幕'));
     li.appendChild(el('span','fdim', human(f.size)));
     const k = kbpsOf(f, cap);

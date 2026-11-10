@@ -66,7 +66,13 @@ function paint(li, j){
   st.className = 'jstate ' + (j.skipped ? 'skip' : cls);
   st.textContent = j.skipped ? '已跳过' : (PHASE[j.phase] || j.phase);
 
-  li.querySelector('.jname').textContent = j.name;
+  const jn = li.querySelector('.jname');
+  {
+    const rel = String(j.rel || '');
+    const sub = rel ? rel.replace(/[\\/][^\\/]*$/, '') : '';
+    jn.textContent = sub ? sub + ' / ' + j.name : j.name;
+    jn.title = j.src || j.name;
+  }
 
   const sum = li.querySelector('.jsum');
   if (j.skipped){
