@@ -135,7 +135,7 @@ const routes = [
   { method: 'POST', exact: true, path: '/api/jobs/clear', handler: handleJobsClear },
   { method: 'POST', exact: true, path: '/api/resume', handler: handleResume },
   { method: 'POST', exact: true, path: '/api/jobs/resume', handler: handleResume },
-  { method: 'POST', regex: /^\/api\/jobs\/([^/]+)\/cancel$/, handler: handleCancel },
+  { method: 'POST', regex: /^\/api\/jobs\/(?<id>[^/]+)\/cancel$/, handler: handleCancel },
   { method: 'GET', exact: true, path: '/api/events', handler: handleEvents },
   { method: 'POST', exact: true, path: '/api/open', handler: handleOpen },
   { method: 'GET', exact: true, path: '/api/log', handler: handleLog },
@@ -460,8 +460,10 @@ function handleJobsGet(req, res) {
 }
 
 async function handleCancel(req, res, params) {
-  const id = decodeURIComponent(params[0]);
-  return H.json(res, { ok: TM.cancel(id) });
+  const id = decodeURIComponent(params.id || '');
+  const ok = TM.cancel(id);
+  // 把终态一并返回，前端可立即重画这一行，不必等 SSE（连接中断时也能正确反馈）
+  return H.json(res, { ok, job: ok ? TM.getJob(id) : null });
 }
 
 function handleResume(req, res) {

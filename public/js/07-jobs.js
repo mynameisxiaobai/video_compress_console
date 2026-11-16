@@ -168,7 +168,14 @@ function paint(li, j){
     b.addEventListener('click', async (e) => {
       e.stopPropagation();
       b.disabled = true;
-      await post('/api/jobs/' + encodeURIComponent(j.id) + '/cancel', {});
+      b.textContent = '取消中…';
+      let r;
+      try { r = await post('/api/jobs/' + encodeURIComponent(j.id) + '/cancel', {}); }
+      catch(err){ b.disabled = false; b.textContent = '取消'; return; }
+      // 不再干等 SSE：接口已把终态回传，立刻重画这一行。
+      // SSE 随后再推一次同 id 的 job.cancelled 是幂等覆盖，不会重复计数。
+      if (r && r.ok && r.job) upsert(r.job);
+      else { b.disabled = false; b.textContent = '取消'; }
     });
     act.appendChild(b);
   } else if (j.phase === 'done' && !j.skipped){
