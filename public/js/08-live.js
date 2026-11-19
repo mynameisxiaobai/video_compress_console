@@ -96,6 +96,8 @@ function onState(s){
       notifyDone(s);
     }
     paintRunControls(s);          // running 变了，暂停/停止按钮要跟着收起来
+    // running 刚变 false，顶部那行「约剩」要跟着消失，否则会留一句"即将完成"挂在头上
+    paintHead();
     if (JOBS.size) showDocket(s.stopped ? 'stopped' : '');
   }
 }

@@ -261,7 +261,10 @@ details.adv summary:hover{color:var(--ink2)}
 .dhright{margin-left:auto;display:flex;align-items:baseline;gap:14px}
 .pct{font-family:var(--num);font-stretch:88%;font-size:26px;font-weight:600;line-height:1;color:var(--ink)}
 .pct small{font-size:12px;color:var(--ink3);margin-left:1px}
-.eta{font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.eta{font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* 完成时刻比"约剩"次要，弱化一档；窄屏只留"约剩"，别把百分比挤走 */
+.eta i{font-style:normal;opacity:.68}
+@media(max-width:1180px){.eta i{display:none}}
 
 /* 胶片条 */
 .strip{display:flex;gap:2px;margin:14px 0 9px;padding:7px 0;position:relative;min-height:42px}

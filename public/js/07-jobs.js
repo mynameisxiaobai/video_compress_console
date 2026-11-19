@@ -147,6 +147,20 @@ function paint(li, j){
     if (j.speed) add('速度', j.speed);
     if (j.bitrate) add('实时', j.bitrate);
     if (j.outSize) add('已写', human(j.outSize));
+    // 这一条自己还要多久：优先用 ffmpeg 报的实时 speed（最准），
+    // 但刚启动那几秒 speed 里含初始化开销，会把数字撑得很大，
+    // 所以再和开批时的整体预估取小值——宁可先显示得乐观，也别一上来就吓人。
+    const sp = parseFloat(j.speed);
+    if (sp > 0 && j.duration){
+      let left = Math.max(0, (j.duration - (j.outSec || 0)) / sp);
+      if (j.estSec) left = Math.min(left, j.estSec);
+      add('约剩', left > 1 ? spanDur(left) + ' · ' + clockAt(Date.now() + left * 1000) : '即将完成');
+    } else if (j.estSec){
+      add('约剩', spanDur(j.estSec));
+    }
+  } else if (j.phase === 'queued'){
+    // 排队中还没有 speed，只能按吞吐估；轮到自己时这个数字会被实测替换
+    if (j.estSec) add('约需', spanDur(j.estSec));
   } else if (j.phase === 'done'){
     // 压缩前后的大小与比值已经在上面那块对照里了，这里只说过程和附带信息
     if (!hasCmp){
@@ -299,7 +313,10 @@ function paintRunControls(s){
     $('#startHint').textContent = '已暂停派发，正在转码的会跑完';
   } else {
     $('#startHint').className = 'hint';
-    $('#startHint').textContent = '转码中，可暂停或停止整批';
+    const eta = etaInfo(Array.from(JOBS.values()), st);
+    $('#startHint').textContent = (eta && eta.at)
+      ? '转码中 · 约 ' + clockAt(eta.at) + ' 完成，可暂停或停止整批'
+      : '转码中，可暂停或停止整批';
   }
 }
 
@@ -409,6 +426,68 @@ function resetJobsView(){
   applyFilter();
 }
 
+/* ---------- 预计完成时间 ---------- */
+
+/** 完成时刻：当天只给 HH:MM，跨天补「明天」或日期 */
+function clockAt(ts){
+  const d = new Date(ts), now = new Date();
+  const hh = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((a - b) / 86400000);
+  if (days <= 0) return hh;
+  if (days === 1) return '明天 ' + hh;
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hh;
+}
+
+/**
+ * 整批还要多久。
+ *
+ * 工作量用后端给的 estSec（该任务"独占跑完"约需多少秒，按像素吞吐折算），
+ * 不用视频时长：同样 1 小时，1080p 和 480p 的耗时差 5 倍，按时长分权重会估飘。
+ *
+ * 开压那一刻就能算出来——这是重点，用户不想盯着"估算中…"等到 2%。
+ * 跑够 12 秒后掺入实测吞吐（完成工作量 / 已用时间），越快跑越准。
+ *
+ * @returns {{sec:number, at:number, html:string, text:string}|null}
+ */
+function etaInfo(arr, s){
+  if (!ST.running || ST.finished) return null;
+  if (s && s.paused) return { sec:0, at:0, html:'已暂停', text:'已暂停' };
+  let work = 0, doneWork = 0;
+  for (const j of arr){
+    if (j.skipped || j.phase === 'failed' || j.phase === 'cancelled') continue;
+    const e = Number(j.estSec) || 0;
+    if (!e) continue;
+    work += e;
+    if (j.phase === 'done') doneWork += e;
+    else if (j.phase === 'running' || j.phase === 'finalizing'){
+      doneWork += e * Math.min(1, (j.pct || 0) / 100);
+    }
+  }
+  if (!work) return null;
+  const left = Math.max(0, work - doneWork);
+  if (left < 1) return { sec:0, at:0, html:'即将完成', text:'即将完成' };
+
+  // 并行 n 个任务，墙钟每秒推进约 n 份工作；抢 GPU/CPU 要打个折
+  const conc = Math.max(1, Number(s && s.concurrency) || 1);
+  let speed = conc * (conc > 1 ? 0.88 : 1);
+  const elapsed = ST.t0 ? (Date.now() - ST.t0) / 1000 : 0;
+  if (elapsed > 12 && doneWork > 0){
+    // 实测值含启动开销与暂停空转，会略偏低，所以只给七成权重
+    const obs = doneWork / elapsed;
+    if (obs > 0.02) speed = obs * 0.7 + speed * 0.3;
+  }
+  const sec = left / Math.max(0.1, speed);
+  if (!(sec > 0) || sec > 86400 * 3){
+    return { sec:0, at:0, html:'估算中…', text:'估算中…' };
+  }
+  const at = Date.now() + sec * 1000;
+  const span = '约剩 ' + spanDur(sec);
+  const clock = '约 ' + clockAt(at) + ' 完成';
+  return { sec, at, html: span + '<i> · ' + clock + '</i>', text: span + ' · ' + clock };
+}
+
 /* ---------- 顶部总览 ---------- */
 function paintHead(){
   const arr = Array.from(JOBS.values());
@@ -452,18 +531,23 @@ function paintHead(){
   }
   $('#dhSub').textContent = arr.length + ' 集 · ' + human(arr.reduce((a,j)=>a+(j.srcSize||0),0));
 
-  const pct = s ? (s.overallPct || 0) : 0;
+  // 后端只在派发/收尾时推 queue.state，整块的百分比会一直停在开批那一刻。
+  // 这里用同一套口径（按视频时长加权）从本地进度算，SSE 每来一条就跟上。
+  const totalDur = arr.reduce((a,j) => a + (j.duration || 0), 0);
+  const doneDur = arr.reduce((a,j) => a + (j.phase === 'done' ? (j.duration || 0) : 0), 0);
+  const runDur = arr.reduce((a,j) => a + ((j.phase === 'running' || j.phase === 'finalizing')
+    ? (j.duration || 0) * (j.pct || 0) / 100 : 0), 0);
+  const pct = totalDur > 0 ? Math.min(100, (doneDur + runDur) / totalDur * 100) : 0;
   $('#ovPct').innerHTML = pct.toFixed(1).replace(/\.0$/,'') + '<small>%</small>';
 
-  // 剩余时间：用已用时间 × 剩余比例推算
-  let eta = '';
-  if (ST.running && pct > 1.5 && pct < 99.9){
-    const elapsed = (Date.now() - ST.t0) / 1000;
-    eta = '约剩 ' + spanDur(elapsed * (100 - pct) / pct);
-  } else if (ST.running){
-    eta = '估算中…';
+  // 剩余时间与完成时刻：开批即有估算，之后用实测吞吐校正
+  const eta = etaInfo(arr, s);
+  $('#ovEta').innerHTML = eta ? eta.html : '';
+  // 顶部空间只够放一行，左栏提示行可以写全，顺便说明"还能暂停"
+  if (eta && eta.at && !(s && s.paused)){
+    $('#startHint').className = 'hint';
+    $('#startHint').textContent = '转码中 · 约 ' + clockAt(eta.at) + ' 完成，可暂停或停止整批';
   }
-  $('#ovEta').textContent = eta;
 
   const meta = $('#dhMeta'); meta.innerHTML = '';
   const put = (k, v, cls) => {
