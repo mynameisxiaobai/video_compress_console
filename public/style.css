@@ -495,6 +495,17 @@ details.adv summary:hover{color:var(--ink2)}
 .dstat .v{font-family:var(--num);font-stretch:88%;font-size:15px;color:var(--ink);font-weight:600}
 .dstat .k{font-size:10.5px;color:var(--ink3);letter-spacing:.06em}
 .dact{display:flex;gap:9px;margin-top:18px;flex-wrap:wrap}
+/* 可点击的统计格（「已跳过」→ 打开明细弹窗） */
+.dstatbtn{
+  appearance:none;background:none;border:0;border-left:1px solid var(--rule);
+  cursor:pointer;text-align:left;font:inherit;border-radius:0;
+  transition:background .14s;
+}
+.dstatbtn:hover{background:rgba(255,255,255,.035)}
+.dstatbtn:first-child{border-left:0}
+.dstatbtn .k{color:var(--sodium);opacity:.85}
+.dstatbtn:hover .k{opacity:1}
+body.modal-open{overflow:hidden}
 
 /* ---------------- 空态 ---------------- */
 .empty{padding:56px 8px;text-align:center;color:var(--ink3)}
@@ -614,4 +625,82 @@ details.adv summary:hover{color:var(--ink2)}
 }
 @media(prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
+}
+
+/* ---------------- 弹窗 ---------------- */
+.modal{
+  position:fixed;inset:0;z-index:80;
+  display:flex;align-items:center;justify-content:center;padding:26px;
+}
+.modal[hidden]{display:none}
+.mback{position:absolute;inset:0;background:rgba(9,8,7,.68);backdrop-filter:blur(3px);animation:fade .16s ease both}
+.mbox{
+  position:relative;width:min(640px,100%);max-height:84vh;
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--panel);border:1px solid var(--rule2);border-radius:6px;
+  box-shadow:0 30px 70px -18px rgba(0,0,0,.85),0 0 0 1px rgba(233,161,59,.05) inset;
+  animation:rise .22s cubic-bezier(.2,.8,.3,1) both;
+}
+.mhead{
+  display:flex;align-items:center;gap:12px;flex:none;
+  padding:15px 18px;border-bottom:1px solid var(--rule);
+  background:linear-gradient(180deg,rgba(42,38,34,.5),rgba(26,25,23,.2));
+}
+.mhead h3{
+  margin:0;flex:1;min-width:0;font-family:var(--display);
+  font-size:15px;font-weight:700;letter-spacing:.05em;
+}
+.mx{
+  width:28px;height:28px;flex:none;padding:0;line-height:1;
+  border:1px solid var(--rule);border-radius:3px;background:transparent;
+  color:var(--ink2);font-size:18px;cursor:pointer;
+  transition:color .14s,border-color .14s,background .14s;
+}
+.mx:hover{color:var(--ink);border-color:var(--rule2);background:var(--panel2)}
+.mbody{padding:16px 18px 18px;overflow:auto;font-size:13px;color:var(--ink2)}
+.mfoot{
+  display:flex;gap:10px;justify-content:flex-end;flex:none;
+  padding:13px 18px;border-top:1px solid var(--rule);background:rgba(26,25,23,.6);
+}
+.mfoot .btn{width:auto;padding:8px 18px;font-size:13px}
+
+/* 跳过明细 */
+.mlead{
+  display:flex;gap:10px;align-items:flex-start;line-height:1.65;
+  padding:11px 13px;margin-bottom:14px;border-radius:4px;
+  border:1px solid rgba(233,161,59,.3);background:rgba(233,161,59,.06);color:#e7c68f;
+}
+.mlead b{color:var(--ink);font-weight:600}
+.mlead .mic{flex:none;width:16px;height:16px;margin-top:2px;color:var(--sodium)}
+.skiplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.skiplist li{
+  padding:10px 12px;border-radius:4px;
+  background:rgba(255,255,255,.02);border:1px solid var(--rule);
+}
+.skname{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;font-size:13px;color:var(--ink)}
+.skname .sidx{
+  flex:none;font-family:var(--num);font-stretch:88%;font-size:10.5px;
+  color:var(--ink3);letter-spacing:.04em;
+}
+.skname .snm{word-break:break-all}
+.skname .stag{
+  flex:none;font-size:10.5px;padding:1px 7px;border-radius:999px;
+  border:1px solid var(--rule2);color:var(--ink3);
+}
+.skname .stag.part{color:var(--sodium);border-color:rgba(233,161,59,.35)}
+.skmeta{
+  display:flex;gap:14px;flex-wrap:wrap;margin-top:5px;
+  font-size:11.5px;color:var(--ink3);line-height:1.5;
+}
+.skmeta .k{color:var(--ink3)}
+.skmeta .v{color:var(--ink2);word-break:break-all;font-family:var(--mono);font-size:11px}
+.skwhy{margin-top:5px;font-size:12px;color:#e7c68f}
+.skwhy .k{color:var(--ink3);margin-right:6px}
+.mscroll{max-height:52vh;overflow:auto;padding-right:2px;margin:-2px -2px 0}
+@media(max-width:640px){
+  .modal{padding:12px}
+  .mbox{max-height:88vh}
+  .mbody{padding:13px 14px 15px}
+  .mfoot{padding:11px 14px}
+  .mscroll{max-height:46vh}
 }

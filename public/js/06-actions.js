@@ -80,15 +80,42 @@ $('#btnStart').addEventListener('click', async () => {
     $('#btnStart').disabled = false;
     return;
   }
-  // 同名冲突的处理结果必须说出来：以前是静默覆盖/静默丢弃，用户完全不知情
+  // 同名冲突的处理结果必须说出来：以前是静默覆盖/静默丢弃，用户完全不知情。
+  // 跳过尤其要说清楚「跳了哪几个」，否则用户只看到少压了几集，无从排查。
   const nSkip = r.skipped || 0, nRen = r.renamed || 0;
+  const batchJobs = r.jobs || [];
+  const skippedJobs = batchJobs.filter(j => j.skipped);
   if (nSkip || nRen){
-    const label = { skip: '跳过', rename: '自动改名', overwrite: '覆盖' }[r.onConflict] || '跳过';
+    const box = $('#openMsg');
     const parts = [];
-    if (nSkip) parts.push(nSkip + ' 个文件输出已存在，按「' + label + '」处理');
-    if (nRen) parts.push(nRen + ' 个同名文件已改名为带 (1) 的名字');
-    flash($('#openMsg'), nSkip ? '' : 'ok', parts.join('；') + '。');
-  } else if ($('#openMsg').textContent.indexOf('已存在') >= 0){
+    if (nSkip) parts.push('<b>' + nSkip + '</b> 个文件被跳过');
+    if (nRen) parts.push('<b>' + nRen + '</b> 个文件名冲突，已自动改名');
+    flash(box, nSkip ? 'warn' : 'ok', parts.join('，') + '。');
+
+    if (nSkip){
+      const line = box.querySelector('.line');
+      const span = line && line.querySelector('span');
+      if (span){
+        const more = el('button', 'btn tiny', '查看跳过明细');
+        more.type = 'button';
+        more.style.marginLeft = '8px';
+        more.addEventListener('click', () => showSkipDialog(skippedJobs));
+        span.appendChild(more);
+      }
+      // 直接弹一次：用户要的就是「跳过了哪些」，别让他再点一下
+      showSkipDialog(skippedJobs);
+    }
+    if (nRen){
+      const ex = batchJobs.find(j => j.renamedFrom);
+      const d = el('div', 'line dim');
+      const from = ex ? ex.name : '';
+      const to = ex ? String(ex.out || '').split(/[\\/]/).pop() : '';
+      d.innerHTML = '<span>同名文件都保留了结果' +
+        (from ? '（' + esc(from) + ' → ' + esc(to) + '）' : '') + '</span>';
+      box.appendChild(d);
+    }
+  } else if ($('#openMsg').textContent.indexOf('已存在') >= 0 ||
+             $('#openMsg').textContent.indexOf('跳过') >= 0){
     $('#openMsg').innerHTML = '';
   }
   ST.running = true; ST.finished = false; ST.t0 = Date.now(); ST.wallSec = 0;

@@ -523,7 +523,7 @@ function showDocket(mode){
       '<div class="dstat"><div class="v">' + spanDur(wall) + '</div><div class="k">总耗时</div></div>' +
       '<div class="dstat"><div class="v">' + spanDur(Math.round(totalSec / Math.max(1, ok.length))) + '</div><div class="k">平均每集</div></div>' +
       (failed ? '<div class="dstat"><div class="v" style="color:var(--flare)">' + failed + ' 集</div><div class="k">失败</div></div>' : '') +
-      (skipN ? '<div class="dstat"><div class="v" style="color:var(--ink3)">' + skipN + ' 集</div><div class="k">已跳过</div></div>' : '') +
+      (skipN ? '<button type="button" class="dstat dstatbtn" id="btnSkips" title="查看被跳过的文件明细"><div class="v" style="color:var(--ink3)">' + skipN + ' 集</div><div class="k">已跳过 · 看明细 ↗</div></button>' : '') +
       (previewN ? '<div class="dstat"><div class="v" style="color:var(--steel)">' + previewN + ' 个</div><div class="k">试压片段</div></div>' : '') +
       (stopped && pending ? '<div class="dstat"><div class="v" style="color:var(--sodium)">' + pending + ' 集</div><div class="k">未完成</div></div>' : '') +
     '</div>' +
@@ -531,6 +531,10 @@ function showDocket(mode){
       '<button class="btn" id="btnAgain">再压一批</button></div>';
 
   $('#btnOpen2').addEventListener('click', () => openTarget({ dir: normOutDir($('#outDir').value) }, $('#openMsg')));
+  // 结果单里的「已跳过」可点开明细：跑完之后仍然能回头看跳了哪些
+  const bsk = $('#btnSkips');
+  if (bsk) bsk.addEventListener('click', () =>
+    showSkipDialog(Array.from(JOBS.values()).filter(j => j.skipped)));
   $('#btnAgain').addEventListener('click', () => {
     resetJobsView();
     d.hidden = true;
@@ -540,4 +544,109 @@ function showDocket(mode){
     $('#startHint').textContent = '先在第 01 步选好文件';
   });
   d.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+/* ---------- 弹窗 ----------
+   只有一个通用弹窗，内容由调用方组装。目前用于「跳过明细」，
+   以后要放别的说明也能直接复用。 */
+let modalOpen = false;
+
+function openModal(opt){
+  opt = opt || {};
+  const m = $('#modal');
+  if (!m) return;
+  $('#mTitle').textContent = opt.title || '';
+  const body = $('#mBody');
+  body.innerHTML = '';
+  if (opt.body) body.appendChild(opt.body);
+  const foot = $('#mFoot');
+  foot.innerHTML = '';
+  const acts = (opt.foot && opt.foot.length)
+    ? opt.foot
+    : [{ text: '知道了', cls: 'go' }];
+  acts.forEach(a => {
+    const btn = el('button', 'btn ' + (a.cls || ''), a.text);
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+      if (a.fn) a.fn();
+      if (a.keep !== true) closeModal();
+    });
+    foot.appendChild(btn);
+  });
+  m.hidden = false;
+  modalOpen = true;
+  document.body.classList.add('modal-open');
+  // 焦点给关闭按钮：键盘用户按 Esc / Enter 都能立刻关掉
+  setTimeout(() => { const x = $('#mClose'); if (x) x.focus(); }, 30);
+}
+
+function closeModal(){
+  const m = $('#modal');
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  modalOpen = false;
+  document.body.classList.remove('modal-open');
+}
+
+$('#mClose').addEventListener('click', closeModal);
+$('#mBack').addEventListener('click', closeModal);
+document.addEventListener('keydown', e => {
+  if (modalOpen && (e.key === 'Escape' || e.key === 'Esc')){
+    e.stopPropagation();
+    closeModal();
+  }
+});
+
+/**
+ * 跳过明细：把「哪些文件被跳过、为什么」一次列清。
+ * 以前只有一个「N 个跳过」的数字，用户根本不知道少压了哪几集。
+ * @param {Array} list 任务列表（只取 skipped 的）
+ */
+function showSkipDialog(list){
+  const items = (list || []).filter(j => j && j.skipped);
+  if (!items.length) return;
+
+  const box = el('div');
+  const lead = el('div', 'mlead');
+  lead.innerHTML =
+    '<svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">' +
+      '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.2v.6"/></svg>' +
+    '<span>这批有 <b>' + items.length + '</b> 个文件被跳过。它们<b>不会</b>进入转码队列，' +
+    '也不会写入任何输出——源文件保持原样。下面是完整名单。</span>';
+  box.appendChild(lead);
+
+  const wrap = el('div', 'mscroll');
+  const ul = el('ul', 'skiplist');
+  items.forEach((j, i) => {
+    const li = el('li');
+    const rel = String(j.rel || '').replace(/[\\/]+/g, '/');
+    const show = rel || j.name || '(未知文件)';
+    const isPart = /\.part/.test(String(j.note || j.reason || ''));
+    const head = el('div', 'skname');
+    head.innerHTML =
+      '<span class="sidx">' + String(i + 1).padStart(2, '0') + '</span>' +
+      '<span class="snm">' + esc(show) + '</span>' +
+      (j.srcSize > 0 ? '<span class="stag">' + human(j.srcSize) + '</span>' : '') +
+      (isPart ? '<span class="stag part">.part</span>' : '');
+    li.appendChild(head);
+
+    const why = el('div', 'skwhy');
+    why.innerHTML = '<span class="k">原因</span>' + esc(j.note || j.reason || '输出文件已存在，已跳过');
+    li.appendChild(why);
+
+    if (j.out){
+      const meta = el('div', 'skmeta');
+      meta.innerHTML = '<span class="k">目标</span><span class="v">' + esc(j.out) + '</span>';
+      li.appendChild(meta);
+    }
+    ul.appendChild(li);
+  });
+  wrap.appendChild(ul);
+  box.appendChild(wrap);
+
+  const od = $('#outDir') ? $('#outDir').value.trim() : '';
+  const foot = [];
+  if (od) foot.push({ text: '打开输出文件夹', fn: () => openTarget({ dir: normOutDir(od) }, $('#openMsg')) });
+  foot.push({ text: '知道了', cls: 'go' });
+  openModal({ title: '跳过的文件（' + items.length + '）', body: box, foot });
 }

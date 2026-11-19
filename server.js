@@ -384,28 +384,51 @@ async function handleJobsCreate(req, res) {
     // 以前重名靠 createJobs 里的 continue 静默丢弃，用户不知道少压了一集。
     // 带 rel 的文件（递归扫描来的）按源目录结构镜像到 outDir 的子目录里。
     const taken = new Set();
-    const prepared = [];
+    // 追加模式下，前面批次里「还没落盘」的任务输出路径已经占住了，但磁盘上
+    // 查不到。不先登记进来，追加同名文件会算出同一个路径，两个 ffmpeg 抢写
+    // 同一个 .part。已完成的任务不用管——它们的产物在磁盘上，走正常冲突判断。
+    if (body.append) {
+      for (const j of TM.jobs.values()) {
+        if (!j.out) continue;
+        if (j.phase !== 'queued' && j.phase !== 'running' && j.phase !== 'finalizing') continue;
+        taken.add(j.out.toLowerCase());
+      }
+    }
+    // 分配输出名的顺序和队列顺序是两件事：先让「源本身就是 mp4」的文件占住原名，
+    // 别的格式再挑名字。这样 01.mp4 保持 01.mp4、01.mkv 变成 01 (mkv).mp4；
+    // 反过来的话会是 01 (1).mp4，光看名字不知道对应哪个源文件。
+    const plan = new Array(files.length);
+    const order = files.map((f, i) => ({ f, i }));
+    const isMp4 = f => path.extname(f.file).toLowerCase() === '.mp4';
+    order.sort((a, b) => (isMp4(a.f) === isMp4(b.f) ? a.i - b.i : (isMp4(a.f) ? -1 : 1)));
+
     let skipped = 0, renamed = 0;
-    for (const f of files) {
+    for (const { f, i } of order) {
       const base = Paths.outputFileFor(f.file, outDir, opts.suffix || '', f.rel || '');
-      const r = Paths.resolveOutput(base, opts.onConflict, taken);
+      // 源扩展名传给冲突解析：同名不同格式（01.mp4 / 01.mkv）撞名时，
+      // 会生成 01 (mkv).mp4 而不是 01 (1).mp4，一眼能看出是哪个源文件
+      const srcExt = path.extname(f.file).replace(/^\./, '');
+      const r = Paths.resolveOutput(base, opts.onConflict, taken, srcExt);
       if (!r.skipped) {
         // 子目录要在任务开跑前建好，否则 ffmpeg 写 .part 会因目录不存在失败
         try {
           fs.mkdirSync(path.dirname(r.out), { recursive: true });
-          taken.add(r.out.toLowerCase());
           if (r.renamedFrom) renamed++;
         } catch (e) {
           r.skipped = true;
           r.reason = '无法创建输出子目录: ' + e.message;
         }
       }
+      // 跳过也要占住名字：同批里再来一个同名源文件时该改名保留，
+      // 不能跟着一起被跳过（那是两个不同的文件）
+      taken.add(r.out.toLowerCase());
       if (r.skipped) skipped++;
-      prepared.push(Object.assign({}, f, {
+      plan[i] = Object.assign({}, f, {
         out: r.out, skipped: !!r.skipped,
         renamedFrom: r.renamedFrom || null, reason: r.reason || null
-      }));
+      });
     }
+    const prepared = plan;
 
     // 磁盘预检：每个文件的分辨率/帧率不同，目标码率也不同，必须逐文件累加。
     // 会被跳过的文件不占空间，这里直接排除。

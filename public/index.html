@@ -248,6 +248,19 @@
   </div>
 </div>
 
+<!-- 通用弹窗：跳过明细等需要「看清楚」的信息 -->
+<div class="modal" id="modal" hidden>
+  <div class="mback" id="mBack"></div>
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="mhead">
+      <h3 id="mTitle"></h3>
+      <button class="mx" id="mClose" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="mbody" id="mBody"></div>
+    <div class="mfoot" id="mFoot"></div>
+  </div>
+</div>
+
 <script src="/js/01-core.js"></script>
 <script src="/js/02-boot.js"></script>
 <script src="/js/03-sources.js"></script>
