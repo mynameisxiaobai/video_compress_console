@@ -54,7 +54,7 @@ const defaultConfig = () => ({
   keepSubtitle: true,
   vbv: true,
   faststart: false,
-  multipass: true,
+  multipass: false,
   concurrency: 2,
   suffix: '',
   // 输出已存在同名文件时怎么办：skip 跳过 / rename 自动加 (1) / overwrite 覆盖。

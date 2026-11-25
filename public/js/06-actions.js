@@ -16,6 +16,7 @@ function jobBody(files){
       file:f.file, name:f.name, size:f.size, duration:f.duration,
       container:f.container, video:f.video, audio:f.audio,
       subtitleOk:f.subtitleOk, hasSubtitle:f.hasSubtitle,
+      subtitleIndex:f.subtitleIndex, subtitleLang:f.subtitleLang || '',
       // 递归扫描来的文件带着相对路径，服务端据此在输出目录里建同名子文件夹
       rel:f.rel || ''
     })),
@@ -32,7 +33,7 @@ function jobBody(files){
     keepSubtitle: $('#keepSub').checked,
     vbv: $('#advVBV').checked,
     faststart: $('#advFS').checked,
-    multipass: true,
+    multipass: $('#advMP').checked,
     concurrency: Number($('#advConc').value) || 1,
     suffix: $('#advSuf').value.trim(),
     onConflict: $('#advConflict').value
@@ -41,7 +42,6 @@ function jobBody(files){
 
 /** 试压：同一套参数只压前 15 秒，追加进队列，不影响正在跑的整批 */
 async function previewFile(f){
-  if (ST.running){ flash($('#srcMsg'), 'warn', '正在转码，等这批跑完再试压'); return; }
   const body = jobBody([f]);
   body.preview = true;
   body.previewSec = 15;
@@ -123,7 +123,8 @@ $('#btnStart').addEventListener('click', async () => {
   ST.outDirty = false;
   persist({
     encoder: ST.enc, qualityTier: ST.tier, maxShortSide: cap,
-    concurrency: Number($('#advConc').value) || 1, audioBitrate: $('#advAB').value
+    concurrency: Number($('#advConc').value) || 1, audioBitrate: $('#advAB').value,
+    multipass: $('#advMP').checked
   });
   $('#outDir').value = r.outDir;
   $('#docket').hidden = true;

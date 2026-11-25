@@ -11,7 +11,7 @@
 function setTier(t, silent){
   ST.tier = TIER_CAP[t] ? t : 'balanced';
   $$('#tiers .btn').forEach(b => b.classList.toggle('on', b.dataset.tier === ST.tier));
-  $('#advCap').value = String(TIER_CAP[ST.tier]);
+  // 三档只差 bpp 和音频码率。分辨率上限是另一项设置，切档不能把它打回 1080。
   $('#advAB').value = TIER_AUDIO[ST.tier];
   if (!silent) { renderFiles(); updateSpec(); updateNeed(); }
 }
@@ -63,7 +63,12 @@ function kbpsOf(f, cap){
   if (a) return a;
   return parseInt($('#advVB').value, 10) || 2213;
 }
+function paintEncHint(){
+  const n = $('#encNv');
+  if (n) n.textContent = $('#advMP').checked ? '二轮 · 较慢' : '单轮';
+}
 function updateSpec(){
+  paintEncHint();
   const cap = capValue();
   const chosen = ST.files.filter(f => ST.sel.has(f.file));
   const sample = chosen[0];
@@ -88,6 +93,7 @@ function updateSpec(){
   if (k){ const b = el('span'); b.innerHTML = '视频 <b>' + k + 'k</b>'; sp.appendChild(b); }
   const c = el('span'); c.innerHTML = 'HEVC <b>hvc1</b>'; sp.appendChild(c);
   if ($('#keepSub').checked){ const s = el('span'); s.innerHTML = '<b>mov_text</b> 字幕'; sp.appendChild(s); }
+  if (ST.enc === 'nvenc' && $('#advMP').checked){ const m = el('span'); m.innerHTML = '<b>二轮</b>编码'; sp.appendChild(m); }
   $('#capMeta').textContent = cap ? '上限 ' + cap + 'p' : '原分辨率';
   // 分辨率上限变化会改变每集体积，文件行的预估要跟着走
   $$('#files .frow').forEach(li => {

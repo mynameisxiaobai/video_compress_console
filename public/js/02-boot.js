@@ -24,6 +24,8 @@ async function boot(){
   const cfg = (ST.status && ST.status.config) || {};
   $('#srcDir').value = cfg.sourceDir || '';
   $('#advConc').value = cfg.concurrency || 2;
+  // 配置里显式开过二轮就勾上；没写或写了 false 则保持默认关闭
+  $('#advMP').checked = cfg.multipass === true || cfg.multipass === 'true';
   $('#advVB').disabled = true;
   const CF = ['skip', 'rename', 'overwrite'];
   $('#advConflict').value = CF.indexOf(cfg.onConflict) >= 0 ? cfg.onConflict : 'skip';

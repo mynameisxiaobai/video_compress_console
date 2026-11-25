@@ -21,7 +21,7 @@
   "keepSubtitle": true,
   "vbv": true,
   "faststart": false,
-  "multipass": true,
+  "multipass": false,
   "concurrency": 2,
   "suffix": "",
   "onConflict": "skip",

@@ -65,8 +65,8 @@
         <button class="btn" data-tier="high"><b>高画质</b><span data-k="high">—</span></button>
       </div>
       <div class="seg2" id="encs" style="margin-top:6px">
-        <button class="btn on" data-enc="nvenc"><b>显卡 NVENC</b><span>快 · 约 8 分/集</span></button>
-        <button class="btn" data-enc="x265"><b>CPU x265</b><span>省 · 约 37 分/集</span></button>
+        <button class="btn on" data-enc="nvenc"><b>显卡 NVENC</b><span id="encNv">单轮</span></button>
+        <button class="btn" data-enc="x265"><b>CPU x265</b><span>更小 · 更慢</span></button>
       </div>
       <div class="spec" id="spec"></div>
 
@@ -125,6 +125,7 @@
           <label class="chk"><input type="checkbox" id="keepSub" checked><span style="font-size:12px;color:var(--ink2)">保留字幕（转 mov_text）</span></label>
           <label class="chk"><input type="checkbox" id="advVBV" checked><span style="font-size:12px;color:var(--ink2)">限制峰值码率 VBV</span></label>
           <label class="chk"><input type="checkbox" id="advFS"><span style="font-size:12px;color:var(--ink2)">秒开优化 faststart</span></label>
+          <label class="chk"><input type="checkbox" id="advMP"><span style="font-size:12px;color:var(--ink2)">二轮编码（更准，大约慢一倍）</span></label>
         </div>
       </details>
     </section>

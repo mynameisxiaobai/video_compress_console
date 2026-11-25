@@ -77,4 +77,5 @@ $('#advAuto').addEventListener('change', () => {
 });
 $('#advVB').addEventListener('input', () => { renderFiles(); updateSpec(); });
 $('#keepSub').addEventListener('change', updateSpec);
+$('#advMP').addEventListener('change', updateSpec);
 $('#srcDir').addEventListener('keydown', e => { if (e.key === 'Enter') doScan(); });

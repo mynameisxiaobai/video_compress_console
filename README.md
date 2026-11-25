@@ -329,7 +329,7 @@ video-compress-console/
 | `keepSubtitle` | `true` | 保留字幕并转 `mov_text` |
 | `vbv` | `true` | 启用 VBV，防止播放器卡顿 |
 | `faststart` | `false` | moov 前移，便于在线播放 |
-| `multipass` | `true` | NVENC 二轮编码 |
+| `multipass` | `false` | NVENC 二轮编码。页面「高级参数」里可勾上，大约慢一倍、码率分配更准 |
 | `concurrency` | `2` | 同时转码任务数 |
 | `suffix` | `''` | 输出文件名附加后缀 |
 | `onConflict` | `skip` | 同名策略：`skip` / `rename` / `overwrite` |
